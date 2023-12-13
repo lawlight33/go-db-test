@@ -3,8 +3,10 @@ package main
 import (
 	"database/sql"
 	"fmt"
+	"math/rand"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -17,8 +19,19 @@ const (
 	dbUser      = "postgres"
 	dbPassword  = "postgres"
 	dbName      = "postgres"
-	threadCount = 50
+	threadCount = 80
 )
+
+// Admin SQL commands:
+// create table loadtest_1 (
+//     id1 uuid primary key,
+//     created_at timestamp with time zone
+// )
+// select count(*) from loadtest_1
+// select id1, created_at from loadtest_1 order by id1 asc
+
+// Export sorted table (by created_at date field) to txt shell command:
+// psql -U postgres -h localhost -p 5432 -c "\pset pager off" -c "select id1 from loadtest order by id1 asc;" > log.txt
 
 func main() {
 	fmt.Println("Running ...")
@@ -63,12 +76,15 @@ func selectExample(db *sql.DB) {
 }
 
 func parallelInsertExample(db *sql.DB, threads int) {
-	query := `insert into loadtest values ($1, $2, $3);`
+	query := `insert into loadtest_1 values ($1, $2);`
 	stmt, err := db.Prepare(query)
 	if err != nil {
 		panic(err)
 	}
 	defer stmt.Close()
+
+	startDate := time.Date(1971, 1, 1, 0, 0, 0, 0, time.UTC)
+	endDate := time.Date(2025, 12, 31, 0, 0, 0, 0, time.UTC)
 
 	var wg sync.WaitGroup
 	wg.Add(threads)
@@ -76,16 +92,24 @@ func parallelInsertExample(db *sql.DB, threads int) {
 		var index = i
 		go func() {
 			defer wg.Done()
-			fmt.Println("Insert from thread #" + strconv.Itoa(index))
-			id1 := uuid.NewString()
-			id2 := uuid.NewString()
-			id3 := uuid.NewString()
-			parameters := []interface{}{id1, id2, id3}
-			_, err := stmt.Exec(parameters...)
-			if err != nil {
-				panic(err)
+			for j := 0; j < 20000; j++ {
+				fmt.Println("Insert from thread #" + strconv.Itoa(index))
+				id1 := uuid.NewString()
+				created_at := randomDate(startDate, endDate)
+				parameters := []interface{}{id1, created_at}
+				_, err := stmt.Exec(parameters...)
+				if err != nil {
+					panic(err)
+				}
 			}
 		}()
 	}
 	wg.Wait()
+}
+
+func randomDate(startDate time.Time, endDate time.Time) string {
+	duration := endDate.Sub(startDate)
+	randomDuration := time.Duration(rand.Int63n(int64(duration)))
+	randomDate := startDate.Add(randomDuration)
+	return randomDate.Format("2006-01-02")
 }
